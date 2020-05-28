@@ -1,0 +1,124 @@
+% Test aircraft Hale UAV: Longitudinal-directional motion, nx=4, ny=4, nu=1  
+%                         states  - aoa, airspeed, pitch rate, pitch angle
+%                         outputs - aoa, airspeed, pitch rate, pitch angle
+%                         inputs  - elevator 
+% 
+% System Identification
+% Final Year Project - ""
+% Code by: Chen Jie
+
+clear all;
+close all;
+% -----------------------------------------------------------------------------------
+%% Getting the state space models
+alpha = [2.4:0.2:25]*pi/180;
+
+i = 20; % At index 20 of the alpha vector
+x0_est = [10000 91 -1*pi/180]; % Make a guess of the parameters of height(m) u(m/s) and deltae(rad) respectively at the particular AOA
+trim = fsolve(@(x) roots_eq(x,alpha(i)), x0_est); % Fsolve to determine the trim conditions
+
+a = alpha(i); % Trim AOA
+t = alpha(i); % Trim pitch angle
+h = trim(1); % Height
+u = trim(2); % Trim forward airspeed
+de = trim(3); % Trim elevator deflection
+q = 0; % Pitch rate
+x0 = [a; u; q; t]; % Trimmed Conditions
+
+AB = jacobian(trim(1)); % State space model at the trim height
+AB_solved = double(subs(AB)); % sub in the trimmed values to get stability derivatives and use double to get decimal places
+A = AB_solved(:,1:4); % Matrix for state derivatives
+B = AB_solved(:,5); % Matrix for control derivatives
+
+%% Stability Analysis
+stab = eig(A);
+if (stab < 0) % if both the real and imag part are negative, sys is stable
+    disp('Longitudinal dynamics of aircraft is stable')
+else 
+    disp('Longitudinal dynamics of aircraft is not stable')
+end
+
+%% Using ODE45 to obtain the x and x_dot 
+
+% Test Case 1 - perturb the elevators for 2 seconds
+perturb_de = 1*pi/180; % Note: sign convention postive for downward elevator deflection
+% duration = 2; % In seconds
+
+% Test Case 2 with noise
+% noise = 0.1*randn(size(ysim)); % Corrupt the signals with zero mean and 10% covariance Gaussian white measurement noise
+% output = y_detrend(:,2) + noise;
+
+tspan = [0:0.025:300];
+% rest_tspan = 0:0.1:2;
+% perturb_up_tspan = 2:0.1:3;
+% perturb_down_tspan = 3:0.1:4;
+% rest1_tspan = 4:0.1:200;
+
+% Times histories of the states
+
+[tsim, ysim] = ode45(@(t,x) xdot_decoupled(x,de,perturb_de,h,t),tspan,x0);
+% [t01,y01] = ode45(@(t,y) xdot_decoupled(y,de,X(1)),rest_tspan,y0);
+% [t02,y02] = ode45(@(t,y) xdot_decoupled(y,perturb_de+de,X(1)),perturb_up_tspan,y01(end,:)); % at initial trimmed conditions
+% [t03,y03] = ode45(@(t,y) xdot_decoupled(y,de-perturb_de,X(1)),perturb_down_tspan,y02(end,:));
+% [t04,y04] = ode45(@(t,y) xdot_decoupled(y,de,X(1)),rest1_tspan,y03(end,:)); % at new initial conditions y01
+% tsim = [t01; t02; t03; t04];
+% ysim = [y01; y02; y03; y04];
+
+% Single doublet elevator
+u = elevator_deflection(tspan,perturb_de,de);
+delta_u = u - repmat(de,length(tspan),1);
+
+% x and its derivatives wrt time
+[x,delta_xdot] = deval(sol,tspan);
+delta_xsim = x' - repmat(x0',length(tspan),1);
+
+%% Parameter estimation using least square method
+H = [delta_xsim'; delta_u']; % Regressor Matrix
+H = H';
+
+% stability and control derivatives
+% H = inv(X'*X)*X*Y
+sacd = H\delta_xdot';
+sacd = sacd';
+
+% matrices A and B estimation
+Ahat = sacd(:,1:4);
+Bhat = sacd(:,5);
+
+[YCmhat, par_std, par_std_rel, R2Stat] = LS_Stat(H, delta_xdot, sacd);
+
+% transform matrix A and B using a priori information
+% Ahat(1,4) = 0;
+% Ahat(3,2) = 0;
+% Ahat(3,4) = 0;
+% Ahat(4,:) = 0;
+% Ahat(4,3) = 1;
+% Bhat(4,1) = 0;
+
+% Use as input for sysid toolbox
+% data1 = iddata(delta_ysim(:,1),delta_input,0.1); 
+% data2 = iddata(delta_ysim(:,2),delta_input,0.1);
+% data3 = iddata(delta_ysim(:,3),delta_input,0.1);
+% data4 = iddata(delta_ysim(:,4),delta_input,0.1);
+% plot(data)
+
+%% Excitation Results
+% delta_xdot = A * delta_x + B * delta_u
+% y = C * delta_x
+
+C = eye(4); % fourth order identity matrix
+sys = ss(Ahat,Bhat,C,[]); % continuous identified state-space model 
+[y] = lsim(sys,delta_u,tspan); % can get [y t x]
+
+% Compare response of estimated data to measured data
+figure
+compare(sol.y,sys);
+%% Plot time histories 
+
+% Plot the control time history
+plot(tspan,delta_u,'m')
+xlabel('time/s')
+ylabel('elevator deflection/rad')
+
+% Plot time history of simulated and estimated model
+% plot_result(tspan,delta_y)

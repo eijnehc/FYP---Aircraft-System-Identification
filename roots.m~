@@ -1,0 +1,32 @@
+function X = roots(x,alpha)
+% Unknown variables are x[rho u deltae]
+
+% Conditions
+theta = alpha;
+q = 0;
+
+% Data of HALE UAV
+b = 10.2; 
+c = 1.74; 
+S = 17.1; 
+mass = 1248.5;
+ly = 4067.5;
+power = 59164 + 64304*sqrt(x(1)) - 15312*x(1);
+D = power/x(2); % Power required = drag * velocity
+g = 9.81;
+
+CL = 6.44*alpha + 3.8*c/(2*x(2))*q + 0.355*x(3);
+L = 0.5*x(1)*x(2)^2*S*CL;
+
+CD = 0.03 + 0.05*CL^2;
+T = 0.5*x(1)*x(2)^2*S*CD; % Thrust = Drag for levelled flight
+
+CM = 0.05 - 0.683 * alpha - 9.96*c/(2*x(2))*q - 0.923*x(3);
+m = 0.5*x(1)*x(2)^2*S*c*CM;
+
+% Decoupled nonlinear longitudinal equation of motion
+X(1) = q - (T*sin(alpha) + L)/(mass * x(2)) + g/x(2)*cos(theta-alpha);
+X(2) = (T*cos(alpha)-D)/mass - g*sin(theta-alpha);
+X(3) = m / ly;
+X(4) = q;
+end
